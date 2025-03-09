@@ -1,0 +1,205 @@
+<!-- receiver.html (updated with persistent connection) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Receiver Client</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    #status {
+      padding: 10px;
+      margin-bottom: 20px;
+      background-color: #f0f0f0;
+      border-radius: 5px;
+    }
+    #messages {
+      height: 400px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+      border-radius: 5px;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 5px;
+    }
+    .message img {
+      max-width: 100%;
+      max-height: 300px;
+      display: block;
+      margin: 10px 0;
+    }
+    .timestamp {
+      font-size: 0.8em;
+      color: #888;
+    }
+    #controls {
+      margin-top: 20px;
+    }
+    .device-id {
+      font-weight: bold;
+      color: #0066cc;
+    }
+  </style>
+</head>
+<body>
+  <h1>Receiver Client</h1>
+  <div id="status">Connection status: Connecting...</div>
+  <div id="messages"></div>
+  
+  <div id="controls">
+    <button id="clear-storage">Reset Device ID</button>
+    <p>Device ID: <span id="device-id" class="device-id">-</span></p>
+    <p><small>This ID persists across page refreshes. Click the button above to reset it.</small></p>
+  </div>
+
+  <script>
+    let socket;
+    let clientId = localStorage.getItem('receiverClientId') || null;
+    const statusDiv = document.getElementById('status');
+    const messagesDiv = document.getElementById('messages');
+    const deviceIdSpan = document.getElementById('device-id');
+    const clearStorageBtn = document.getElementById('clear-storage');
+    
+    // Display the current device ID
+    if (clientId) {
+      deviceIdSpan.textContent = clientId;
+    }
+    
+    // Reset device ID button
+    clearStorageBtn.addEventListener('click', () => {
+      if (confirm('Are you sure you want to reset your device ID? This will create a new connection.')) {
+        localStorage.removeItem('receiverClientId');
+        clientId = null;
+        deviceIdSpan.textContent = '-';
+        
+        // Reconnect with new ID
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.close();
+        }
+        setTimeout(connect, 500);
+      }
+    });
+    
+    // Load previous messages from session storage
+    function loadPreviousMessages() {
+      try {
+        const savedMessages = sessionStorage.getItem('messages');
+        if (savedMessages) {
+          messagesDiv.innerHTML = savedMessages;
+          // Scroll to bottom
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+      } catch (e) {
+        console.error('Error loading previous messages:', e);
+      }
+    }
+    
+    // Save messages to session storage
+    function saveMessages() {
+      try {
+        sessionStorage.setItem('messages', messagesDiv.innerHTML);
+      } catch (e) {
+        console.error('Error saving messages:', e);
+      }
+    }
+    
+    function connect() {
+      // Connect to the server with client ID if available
+      const serverAddress = window.location.hostname;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = clientId 
+        ? `${protocol}//${serverAddress}:${window.location.port}?clientId=${clientId}`
+        : `${protocol}//${serverAddress}:${window.location.port}`;
+      
+      socket = new WebSocket(url);
+      
+      socket.onopen = () => {
+        statusDiv.textContent = 'Connection status: Connected';
+        statusDiv.style.backgroundColor = '#d4edda';
+        
+        // Send ping every 30 seconds to keep connection alive
+        setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
+      };
+      
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'connection') {
+          // Store the client ID if it's a new one
+          if (!clientId) {
+            clientId = data.content.clientId;
+            localStorage.setItem('receiverClientId', clientId);
+            deviceIdSpan.textContent = clientId;
+          }
+          
+          statusDiv.textContent = `Connection status: Connected (ID: ${clientId})`;
+        } else if (data.type === 'text') {
+          displayMessage('Text', data.content, data.timestamp);
+          saveMessages();
+        } else if (data.type === 'image') {
+          displayMessage('Image', data.content, data.timestamp);
+          saveMessages();
+        }
+      };
+      
+      socket.onclose = () => {
+        statusDiv.textContent = 'Connection status: Disconnected. Reconnecting...';
+        statusDiv.style.backgroundColor = '#f8d7da';
+        setTimeout(connect, 5000); // Attempt to reconnect after 5 seconds
+      };
+      
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        statusDiv.textContent = 'Connection status: Error. Reconnecting...';
+        statusDiv.style.backgroundColor = '#f8d7da';
+      };
+    }
+    
+    function displayMessage(type, content, timestamp) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message';
+      
+      const time = new Date(timestamp).toLocaleTimeString();
+      
+      if (type === 'Text') {
+        messageDiv.innerHTML = `
+          <div>${content}</div>
+          <div class="timestamp">${time}</div>
+        `;
+      } else if (type === 'Image') {
+        messageDiv.innerHTML = `
+          <div>New image received:</div>
+          <img src="${content}" alt="Received image">
+          <div class="timestamp">${time}</div>
+        `;
+      }
+      
+      messagesDiv.appendChild(messageDiv);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    // Load previous messages when page loads
+    loadPreviousMessages();
+    
+    // Start connection
+    connect();
+    
+    // Save messages when page is about to unload
+    window.addEventListener('beforeunload', saveMessages);
+  </script>
+</body>
+</html>

@@ -1,0 +1,486 @@
+<!-- sender.html (C2 - the sender with access to send content) -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <title>Sender Dashboard</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .container {
+        display: flex;
+        gap: 20px;
+      }
+      .client-list {
+        flex: 1;
+        border: 1px solid #ccc;
+        padding: 20px;
+        border-radius: 5px;
+      }
+      .message-panel {
+        flex: 2;
+        border: 1px solid #ccc;
+        padding: 20px;
+        border-radius: 5px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      tr.selected {
+        background-color: #e0f7fa;
+      }
+      .online {
+        color: green;
+        font-weight: bold;
+      }
+      .offline {
+        color: red;
+      }
+      textarea {
+        width: 100%;
+        height: 100px;
+        margin-bottom: 10px;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      .button-group {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      button {
+        padding: 10px 15px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      #image-preview {
+        max-width: 100%;
+        max-height: 200px;
+        margin: 10px 0;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Sender Dashboard</h1>
+
+    <div class="container">
+      <div class="client-list">
+        <h2>Connected Clients</h2>
+        <button id="refresh-btn">Refresh Client List</button>
+        <table id="clients-table">
+          <thead>
+            <tr>
+              <th>Client ID</th>
+              <th>IP Address</th>
+              <th>Status</th>
+              <th>Connected At</th>
+              <th>Last Active</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="message-panel">
+        <h2>Send Message</h2>
+        <div>Selected Client: <span id="selected-client">None</span></div>
+
+        <h3>Text Message</h3>
+        <textarea
+          id="text-message"
+          placeholder="Type your message here..."
+        ></textarea>
+        <button
+          id="send-text-btn"
+          disabled
+        >
+          Send Text
+        </button>
+
+        <h3>Image Message</h3>
+        <div class="button-group">
+          <input
+            type="file"
+            id="image-input"
+            accept="image/*"
+          />
+          <button
+            id="send-image-btn"
+            disabled
+          >
+            Send Image
+          </button>
+        </div>
+        <img
+          id="image-preview"
+          src=""
+          alt="Image preview"
+        />
+      </div>
+      <div class="logs-panel">
+        <h2>System Logs</h2>
+        <button id="refresh-logs-btn">Refresh Logs</button>
+        <select id="logs-selector">
+          <option value="">Select a log file...</option>
+        </select>
+        <button
+          id="view-log-btn"
+          disabled
+        >
+          View Log
+        </button>
+        <div
+          id="log-content-container"
+          style="display: none"
+        >
+          <h3 id="log-title">Log Content</h3>
+          <pre
+            id="log-content"
+            style="
+              height: 300px;
+              overflow: auto;
+              background-color: #f5f5f5;
+              padding: 10px;
+              border: 1px solid #ddd;
+              white-space: pre-wrap;
+            "
+          ></pre>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let selectedClientId = null;
+      const clientsTable = document
+        .getElementById("clients-table")
+        .getElementsByTagName("tbody")[0];
+      const selectedClientSpan = document.getElementById("selected-client");
+      const textMessageInput = document.getElementById("text-message");
+      const sendTextBtn = document.getElementById("send-text-btn");
+      const imageInput = document.getElementById("image-input");
+      const sendImageBtn = document.getElementById("send-image-btn");
+      const imagePreview = document.getElementById("image-preview");
+      const refreshBtn = document.getElementById("refresh-btn");
+
+      // Fetch connected clients
+      function fetchClients() {
+        fetch("/api/clients")
+          .then((response) => response.json())
+          .then((clients) => {
+            clientsTable.innerHTML = "";
+
+            if (clients.length === 0) {
+              const row = clientsTable.insertRow();
+              const cell = row.insertCell();
+              cell.colSpan = 5;
+              cell.textContent = "No clients connected";
+              return;
+            }
+
+            clients.forEach((client) => {
+              const row = clientsTable.insertRow();
+
+              if (client.id === selectedClientId) {
+                row.className = "selected";
+              }
+
+              row.insertCell().textContent = client.id;
+              row.insertCell().textContent = client.ipAddress;
+
+              const statusCell = row.insertCell();
+              statusCell.textContent = client.status;
+              statusCell.className = client.status;
+
+              row.insertCell().textContent = new Date(
+                client.connectedAt
+              ).toLocaleString();
+              row.insertCell().textContent = new Date(
+                client.lastActive
+              ).toLocaleString();
+
+              row.addEventListener("click", () => {
+                // Remove selected class from all rows
+                Array.from(clientsTable.getElementsByTagName("tr")).forEach(
+                  (r) => {
+                    r.className = "";
+                  }
+                );
+
+                row.className = "selected";
+                selectedClientId = client.id;
+                selectedClientSpan.textContent = client.id;
+
+                // Enable send buttons
+                sendTextBtn.disabled = false;
+                sendImageBtn.disabled = false;
+              });
+            });
+          })
+          .catch((error) => {
+            console.error("Error fetching clients:", error);
+          });
+      }
+
+      // Send text message
+      sendTextBtn.addEventListener("click", () => {
+        const text = textMessageInput.value.trim();
+
+        if (!selectedClientId || !text) {
+          return;
+        }
+
+        fetch("/api/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            clientId: selectedClientId,
+            messageType: "text",
+            content: text,
+          }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.success) {
+              textMessageInput.value = "";
+              alert("Message sent successfully!");
+            } else {
+              alert("Error: " + data.error);
+            }
+          })
+          .catch((error) => {
+            console.error("Error sending message:", error);
+            alert("Failed to send message");
+          });
+      });
+
+      // Handle image preview
+      imageInput.addEventListener("change", () => {
+        const file = imageInput.files[0];
+
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            imagePreview.src = e.target.result;
+            imagePreview.style.display = "block";
+          };
+          reader.readAsDataURL(file);
+        } else {
+          imagePreview.style.display = "none";
+        }
+      });
+
+      // Function to resize image before sending
+      function resizeImage(file, maxWidth, maxHeight, quality) {
+        return new Promise((resolve, reject) => {
+          // Create an image element
+          const img = new Image();
+          img.src = URL.createObjectURL(file);
+
+          img.onload = () => {
+            // Create canvas
+            const canvas = document.createElement("canvas");
+            let width = img.width;
+            let height = img.height;
+
+            // Resize logic
+            if (width > height) {
+              if (width > maxWidth) {
+                height = Math.round((height * maxWidth) / width);
+                width = maxWidth;
+              }
+            } else {
+              if (height > maxHeight) {
+                width = Math.round((width * maxHeight) / height);
+                height = maxHeight;
+              }
+            }
+
+            // Set canvas dimensions
+            canvas.width = width;
+            canvas.height = height;
+
+            // Draw image on canvas
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // Get data URL
+            const dataUrl = canvas.toDataURL("image/jpeg", quality);
+            resolve(dataUrl);
+
+            // Clean up
+            URL.revokeObjectURL(img.src);
+          };
+
+          img.onerror = reject;
+        });
+      }
+
+      // Replace the sendImageBtn event listener with this updated version
+      sendImageBtn.addEventListener("click", async () => {
+        if (!selectedClientId || !imageInput.files.length) {
+          return;
+        }
+
+        const file = imageInput.files[0];
+
+        try {
+          // Add loading indicator
+          sendImageBtn.disabled = true;
+          sendImageBtn.textContent = "Processing...";
+
+          // Resize image before sending (max 1200x1200px, 0.7 quality)
+          const resizedImage = await resizeImage(file, 1200, 1200, 0.7);
+
+          fetch("/api/send", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              clientId: selectedClientId,
+              messageType: "image",
+              content: resizedImage,
+            }),
+          })
+            .then((response) => response.json())
+            .then((data) => {
+              if (data.success) {
+                imageInput.value = "";
+                imagePreview.style.display = "none";
+                alert("Image sent successfully!");
+              } else {
+                alert("Error: " + data.error);
+              }
+            })
+            .catch((error) => {
+              console.error("Error sending image:", error);
+              alert("Failed to send image");
+            })
+            .finally(() => {
+              // Reset button
+              sendImageBtn.disabled = false;
+              sendImageBtn.textContent = "Send Image";
+            });
+        } catch (error) {
+          console.error("Error processing image:", error);
+          alert("Failed to process image");
+          sendImageBtn.disabled = false;
+          sendImageBtn.textContent = "Send Image";
+        }
+      });
+
+      // Refresh button
+      refreshBtn.addEventListener("click", fetchClients);
+
+      // Initial fetch
+      fetchClients();
+
+      // Refresh clients list periodically
+      setInterval(fetchClients, 30000);
+
+      // Logs handling
+      const refreshLogsBtn = document.getElementById("refresh-logs-btn");
+      const logsSelector = document.getElementById("logs-selector");
+      const viewLogBtn = document.getElementById("view-log-btn");
+      const logContent = document.getElementById("log-content");
+      const logContentContainer = document.getElementById(
+        "log-content-container"
+      );
+      const logTitle = document.getElementById("log-title");
+
+      // Load available logs
+      function loadLogs() {
+        fetch("/api/logs")
+          .then((response) => response.json())
+          .then((data) => {
+            logsSelector.innerHTML =
+              '<option value="">Select a log file...</option>';
+
+            if (data.logs.length === 0) {
+              logsSelector.innerHTML +=
+                "<option disabled>No logs available</option>";
+            } else {
+              // Sort logs by date (newest first)
+              data.logs
+                .sort()
+                .reverse()
+                .forEach((logFile) => {
+                  const option = document.createElement("option");
+                  option.value = logFile;
+                  option.textContent = logFile;
+                  logsSelector.appendChild(option);
+                });
+            }
+          })
+          .catch((error) => {
+            console.error("Error loading logs:", error);
+          });
+      }
+
+      // View log button handler
+      viewLogBtn.addEventListener("click", () => {
+        const selectedLog = logsSelector.value;
+        if (!selectedLog) return;
+
+        fetch(`/api/logs/${selectedLog}`)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error("Failed to load log file");
+            }
+            return response.text();
+          })
+          .then((data) => {
+            logTitle.textContent = `Log Content: ${selectedLog}`;
+            logContent.textContent = data;
+            logContentContainer.style.display = "block";
+          })
+          .catch((error) => {
+            console.error("Error viewing log:", error);
+            alert("Error loading log file");
+          });
+      });
+
+      // Enable/disable view log button based on selection
+      logsSelector.addEventListener("change", () => {
+        viewLogBtn.disabled = !logsSelector.value;
+      });
+
+      // Refresh logs button handler
+      refreshLogsBtn.addEventListener("click", loadLogs);
+
+      // Load logs on page load
+      loadLogs();
+    </script>
+  </body>
+</html>
